@@ -1,0 +1,7 @@
+services:
+  utility-bot:
+    build: .
+    container_name: utility-bot
+    restart: always
+    env_file:
+      - .env

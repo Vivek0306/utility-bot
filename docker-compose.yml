@@ -5,10 +5,6 @@ services:
     restart: always
     env_file:
       - .env
-    privileged: true
-    pid: "host"
     volumes:
       - ./logs:/app/logs
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
     working_dir: /app

@@ -20,7 +20,7 @@ BLACKLIST = [
     "rm -rf /",
     "rm -rf /*",
     "mkfs",
-    ":(){:|:&};:",   # fork bomb
+    ":(){:|:&};:",
     "dd if=/dev/zero",
     "chmod -R 777 /",
     "shutdown",
@@ -68,7 +68,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted
 async def shell(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Get command from message
     if not context.args:
         await update.message.reply_text(
             "⚠️ Usage: `/shell <command>`\nExample: `/shell ls -la`",
@@ -81,23 +80,19 @@ async def shell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check blacklist
     for blocked in BLACKLIST:
         if blocked in command.lower():
-            await update.message.reply_text(f"🚫 Blocked command: `{blocked}`", parse_mode="Markdown")
+            await update.message.reply_text(f"🚫 Blocked: `{blocked}`", parse_mode="Markdown")
             logger.warning(f"Blocked command attempt: {command}")
             return
 
-    # Warn on sudo
     if "sudo" in command:
         await update.message.reply_text("⚠️ Running with sudo — be careful.")
 
-    logger.info(f"Executing shell command: {command}")
+    logger.info(f"Executing: {command}")
     await update.message.reply_text(f"⚙️ Running: `{command}`", parse_mode="Markdown")
 
     try:
-        # nsenter runs the command in the host VM's namespace
-        wrapped = f"nsenter -t 1 -m -u -i -n -p -- {command}"
-
         process = await asyncio.create_subprocess_shell(
-            wrapped,
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -107,7 +102,6 @@ async def shell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         errors = stderr.decode().strip()
         result = output or errors or "(no output)"
 
-        # Telegram message limit is 4096 chars
         if len(result) > 4000:
             result = result[:4000] + "\n... (truncated)"
 

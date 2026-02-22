@@ -1,13 +1,12 @@
 import os
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from dotenv import load_dotenv
-load_dotenv()
 
 # --- Config ---
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "1273008434"))
 
 # --- Logging ---
 logging.basicConfig(
@@ -16,11 +15,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- Blacklisted commands ---
+BLACKLIST = [
+    "rm -rf /",
+    "rm -rf /*",
+    "mkfs",
+    ":(){:|:&};:",   # fork bomb
+    "dd if=/dev/zero",
+    "chmod -R 777 /",
+    "shutdown",
+    "halt",
+    "poweroff",
+]
+
 
 # --- Security: only respond to your chat ---
 def restricted(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        logger.info(f"Received command from chat_id: {update.effective_chat.id}")
         if update.effective_chat.id != ALLOWED_CHAT_ID:
             await update.message.reply_text("⛔ Unauthorized.")
             logger.warning(f"Unauthorized access attempt from chat_id: {update.effective_chat.id}")
@@ -36,6 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Hey KamikazeX! Bot is online.\n\n"
         "Available commands:\n"
         "/ping — check if bot is alive\n"
+        "/shell <command> — run a command on the VM\n"
         "/help — show this menu"
     )
 
@@ -48,10 +60,67 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 *Utility Bot — Command List*\n\n"
         "/ping — check if bot is alive\n"
+        "/shell `<command>` — run a command on the VM\n"
         "/help — show this menu\n\n"
         "_More commands coming soon..._",
         parse_mode="Markdown"
     )
+
+@restricted
+async def shell(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Get command from message
+    if not context.args:
+        await update.message.reply_text(
+            "⚠️ Usage: `/shell <command>`\nExample: `/shell ls -la`",
+            parse_mode="Markdown"
+        )
+        return
+
+    command = " ".join(context.args)
+
+    # Check blacklist
+    for blocked in BLACKLIST:
+        if blocked in command.lower():
+            await update.message.reply_text(f"🚫 Blocked command: `{blocked}`", parse_mode="Markdown")
+            logger.warning(f"Blocked command attempt: {command}")
+            return
+
+    # Warn on sudo
+    if "sudo" in command:
+        await update.message.reply_text("⚠️ Running with sudo — be careful.")
+
+    logger.info(f"Executing shell command: {command}")
+    await update.message.reply_text(f"⚙️ Running: `{command}`", parse_mode="Markdown")
+
+    try:
+        # nsenter runs the command in the host VM's namespace
+        wrapped = f"nsenter -t 1 -m -u -i -n -p -- {command}"
+
+        process = await asyncio.create_subprocess_shell(
+            wrapped,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+
+        output = stdout.decode().strip()
+        errors = stderr.decode().strip()
+        result = output or errors or "(no output)"
+
+        # Telegram message limit is 4096 chars
+        if len(result) > 4000:
+            result = result[:4000] + "\n... (truncated)"
+
+        status = "✅" if process.returncode == 0 else "❌"
+        await update.message.reply_text(
+            f"{status} *Exit code: {process.returncode}*\n\n```\n{result}\n```",
+            parse_mode="Markdown"
+        )
+
+    except asyncio.TimeoutError:
+        await update.message.reply_text("⏱ Command timed out after 30 seconds.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: `{str(e)}`", parse_mode="Markdown")
 
 
 # --- Main ---
@@ -61,6 +130,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("shell", shell))
 
     logger.info("Bot started. Listening for commands...")
     app.run_polling()

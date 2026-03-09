@@ -7,3 +7,5 @@ idna==3.11
 python-dotenv==1.2.1
 python-telegram-bot==22.6
 typing_extensions==4.15.0
+google-api-python-client==2.108.0
+google-auth==2.23.4

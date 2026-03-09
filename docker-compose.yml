@@ -7,4 +7,5 @@ services:
       - .env
     volumes:
       - ./logs:/app/logs
+      - ./credentials.json:/app/credentials.json
     working_dir: /app
